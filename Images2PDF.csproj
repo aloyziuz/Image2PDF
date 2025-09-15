@@ -26,7 +26,7 @@
 
   <ItemGroup>
     <Reference Include="MVVMHelper">
-      <HintPath>..\..\library\MVVMHelper\MVVMHelper\bin\Debug\MVVMHelper.dll</HintPath>
+      <HintPath>..\library\MVVMHelper\MVVMHelper\bin\Debug\MVVMHelper.dll</HintPath>
     </Reference>
   </ItemGroup>
 

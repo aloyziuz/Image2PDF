@@ -35,14 +35,24 @@ namespace Images2PDF
         public string SourceDirectoryPath { get=> this.sourceDirectoryPath; set { this.sourceDirectoryPath = value; RaisePropertyChangedEvent("SourceDirectoryPath"); } }
         public string SourceFolderName { get => folderName; set { this.folderName = value; RaisePropertyChangedEvent("SourceFolderName"); } }
         public uint Quality { get => this.quality; set { this.quality = value; RaisePropertyChangedEvent("Quality"); } }
-        public string Logs { get => this.logs; set { this.logs = value; RaisePropertyChangedEvent("Logs"); } }
+        public string Logs { get => this.logs; private set { this.logs = value; RaisePropertyChangedEvent("Logs"); } }
         public bool IncludeSubDirectories { get => this.includeSubDirectories; set { this.includeSubDirectories = value; RaisePropertyChangedEvent("IncludeSubDirectories"); } }
         public bool OutputPDFInSameDirectory { get => this.outputPDFInSameDirectory; set { this.outputPDFInSameDirectory = value; RaisePropertyChangedEvent("OutputPDFInSameDirectory"); } }
         public ICommand GenerateOutputCommand { get => new RelayCommand(
             (outputType)=> {
-                var worker = new BackgroundWorker();
-                worker.DoWork += (s, e) => this.GenerateOutput((string)outputType);
-                worker.RunWorkerAsync();
+                if (CanGenerateOutput(outputType))
+                {
+                    var outputstr = (string)outputType;
+                    var worker = new BackgroundWorker();
+                    worker.DoWork += (s, e) =>
+                    {
+                        if (this.includeSubDirectories)
+                            this.GenerateMultiDirectoryOutput(outputstr);
+                        else
+                            this.GenerateOutput(outputstr);
+                    };
+                    worker.RunWorkerAsync();
+                }
             }
         ); }
 
@@ -77,12 +87,24 @@ namespace Images2PDF
             return true;
         }
 
-        public void GenerateOutput(object outputType)
+        public void GenerateMultiDirectoryOutput(string outputType)
         {
-            if (!this.CanGenerateOutput(outputType)) return;
-            var outputTypeStr = (string)outputType;
-            this.Logs = "";
+            var subdirectories = this.GetSubDirectories();
+            WriteLog($"Found {subdirectories.Count()} subfolders", LogType.NOTICE);
+            subdirectories = subdirectories.Append(this.sourceDirectoryPath);
 
+            foreach (var subdir in subdirectories)
+            {
+                WriteLog($"Moving to: {subdir}", LogType.NOTICE);
+                var info = new FileInfo(subdir);
+                this.sourceDirectoryPath = info.FullName;
+                this.folderName = info.Name;
+                GenerateOutput(outputType);
+            }
+        }
+
+        public void GenerateOutput(string outputType)
+        {
             IEnumerable<string> imageFiles = GetImageFilesFromDirectory();
 
             if (!imageFiles.Any())
@@ -115,9 +137,9 @@ namespace Images2PDF
                             {
                                 PerformLosslessCompression(compressedStream);
 
-                                if (outputTypeStr == "pdf")
+                                if (outputType == "pdf")
                                     AddImageToDocument(document, compressedStream);
-                                else if (outputTypeStr == "image")
+                                else if (outputType == "image")
                                     SaveImage(imagePath, compressedStream);
                             }
                         }
@@ -134,7 +156,7 @@ namespace Images2PDF
             }
 
             // 4. Save the final PDF document
-            if (outputTypeStr == "pdf")
+            if (outputType == "pdf")
             {
                 try
                 {
@@ -160,25 +182,15 @@ namespace Images2PDF
                     this.WriteLog($"An error occurred while saving the PDF: {ex.Message}", LogType.ERROR);
                 }
             }
-            else if(outputTypeStr == "image")
+            else if(outputType == "image")
             {
                 this.WriteLog("DONE!", LogType.NOTICE);
             }
+        }
 
-            //search subdirectories if checked
-            if (this.includeSubDirectories)
-            {
-                var subdirectories = this.GetSubDirectories();
-                WriteLog($"Found {subdirectories.Count()} subfolders", LogType.NOTICE);
-                foreach(var subdir in subdirectories)
-                {
-                    WriteLog($"Moving to: {subdir}", LogType.NOTICE);
-                    var info = new FileInfo(subdir);
-                    this.sourceDirectoryPath = info.DirectoryName;
-                    this.folderName = info.Directory.Name;
-                    GenerateOutput(outputType);
-                }
-            }
+        public void ResetLogs()
+        {
+            this.Logs = "";
         }
 
         private static void PerformLosslessCompression(MemoryStream compressedStream)

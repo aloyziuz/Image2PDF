@@ -32,7 +32,7 @@ namespace Images2PDF
                 var vm = GetDataContext();
                 if(vm != null)
                 {
-                    vm.Logs = "";
+                    vm.ResetLogs();
                     vm.SourceDirectoryPath = info.DirectoryName;
                     vm.SourceFolderName = info.Directory.Name;
                 }
