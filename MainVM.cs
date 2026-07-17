@@ -77,11 +77,13 @@ namespace Images2PDF
                         if (this.includeSubDirectories)
                         {
                             _totalImageCount = CountAllImages();
+                            WriteLog($"Found {_totalImageCount} images across all directories", LogType.NOTICE);
                             this.GenerateMultiDirectoryOutput(outputstr);
                         }
                         else
                         {
                             _totalImageCount = GetFilesFromDirectory("*.jpg", "*.jpeg", "*.png").Count();
+                            WriteLog($"Found {_totalImageCount} images", LogType.NOTICE);
                             this.GenerateOutput(outputstr);
                         }
 
