@@ -18,46 +18,51 @@ namespace Images2PDF
 
             var xName = Path.GetFileName(x);
             var yName = Path.GetFileName(y);
+            try
+            {
+                // Extract base part and parenthetical number
+                var regex = new Regex(@"^(?<base>\D+)?[-|_|\s]*(?<baseNum>\d+)?[-|_|\s]*(?<subAlpha>\D+)?[-|_|\s]*(?<subNum>\d+)?(?:\s*\((?<paren>\d+)\))?(?<extension>\.\w+)*$");
 
-            // Extract base part and parenthetical number
-            var regex = new Regex(@"^(?<base>\D+)?[-|_|\s]*(?<baseNum>\d+)?[-|_|\s]*(?<subAlpha>\D+)?[-|_|\s]*(?<subNum>\d+)?(?:\s*\((?<paren>\d+)\))?(?<extension>\.\w+)*$");
+                var matchX = regex.Match(xName);
+                var matchY = regex.Match(yName);
 
-            var matchX = regex.Match(xName);
-            var matchY = regex.Match(yName);
+                var baseX = matchX.Groups["base"].Value;
+                var baseY = matchY.Groups["base"].Value;
 
-            var baseX = matchX.Groups["base"].Value;
-            var baseY = matchY.Groups["base"].Value;
+                var numX = matchX.Groups["baseNum"].Success ? long.Parse(matchX.Groups["baseNum"].Value) : 0;
+                var numY = matchY.Groups["baseNum"].Success ? long.Parse(matchY.Groups["baseNum"].Value) : 0;
 
-            var numX = matchX.Groups["baseNum"].Success ? long.Parse(matchX.Groups["baseNum"].Value) : 0;
-            var numY = matchY.Groups["baseNum"].Success ? long.Parse(matchY.Groups["baseNum"].Value) : 0;
+                var subbaseX = matchX.Groups["subAlpha"].Value;
+                var subbaseY = matchY.Groups["subAlpha"].Value;
 
-            var subbaseX = matchX.Groups["subAlpha"].Value;
-            var subbaseY = matchY.Groups["subAlpha"].Value;
+                var subnumX = matchX.Groups["subNum"].Success ? long.Parse(matchX.Groups["subNum"].Value) : 0;
+                var subnumY = matchY.Groups["subNum"].Success ? long.Parse(matchY.Groups["subNum"].Value) : 0;
 
-            var subnumX = matchX.Groups["subNum"].Success ? long.Parse(matchX.Groups["subNum"].Value) : 0;
-            var subnumY = matchY.Groups["subNum"].Success ? long.Parse(matchY.Groups["subNum"].Value) : 0;
+                var numBracketX = matchX.Groups["paren"].Success ? long.Parse(matchX.Groups["paren"].Value) : 0;
+                var numBracketY = matchY.Groups["paren"].Success ? long.Parse(matchY.Groups["paren"].Value) : 0;
 
-            var numBracketX = matchX.Groups["paren"].Success ? long.Parse(matchX.Groups["paren"].Value) : 0;
-            var numBracketY = matchY.Groups["paren"].Success ? long.Parse(matchY.Groups["paren"].Value) : 0;
+                // Compare base strings using natural sorting
+                int compare = StringCompare(baseX, baseY);
+                if (compare != 0) return compare;
 
-            // Compare base strings using natural sorting
-            int compare = StringCompare(baseX, baseY);
-            if (compare != 0) return compare;
+                //if base strings are equal, compare the trailing numbers
+                compare = numX.CompareTo(numY);
+                if (compare != 0) return compare;
 
-            //if base strings are equal, compare the trailing numbers
-            compare = numX.CompareTo(numY);
-            if (compare != 0) return compare;
+                // Compare base strings using natural sorting
+                compare = StringCompare(subbaseX, subbaseY);
+                if (compare != 0) return compare;
 
-            // Compare base strings using natural sorting
-            compare = StringCompare(subbaseX, subbaseY);
-            if (compare != 0) return compare;
+                //if base strings are equal, compare the trailing numbers
+                compare = subnumX.CompareTo(subnumY);
+                if (compare != 0) return compare;
 
-            //if base strings are equal, compare the trailing numbers
-            compare = subnumX.CompareTo(subnumY);
-            if (compare != 0) return compare;
-
-            // If base strings and numbers are equal, compare the numbers in parentheses
-            return numBracketX.CompareTo(numBracketY);
+                // If base strings and numbers are equal, compare the numbers in parentheses
+                return numBracketX.CompareTo(numBracketY);
+            }catch (OverflowException)
+            {
+                return xName.CompareTo(yName);
+            }
         }
 
         private int StringCompare(string a, string b)

@@ -12,9 +12,14 @@
                 <Setter Property="MinWidth" Value="100"/>
                 <Setter Property="MinHeight" Value="40"/>
                 <Setter Property="Margin" Value="10"/>
+                <Setter Property="Padding" Value="5,0,5,0"/>
             </Style>
             <Style TargetType="CheckBox">
                 <Setter Property="Margin" Value="5"/>
+            </Style>
+            <Style TargetType="TextBox">
+                <Setter Property="MinWidth" Value="50"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
@@ -33,14 +38,40 @@
                 <Label Content="{Binding SourceFolderName}"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal">
-                <Label Content="Quality: "/>
-                <TextBox MinWidth="70" Text="{Binding Path=Quality}" VerticalAlignment="Center"/>
+                <Label Content="Max Dimension (0=no resize): "/>
+                <TextBox MinWidth="70" Text="{Binding Path=MaxDimension}" VerticalAlignment="Center"/>
             </StackPanel>
             <CheckBox Content="Include Sub Directories?" IsChecked="{Binding Path=IncludeSubDirectories}"/>
             <CheckBox Content="Output PDF in same directory" IsChecked="{Binding OutputPDFInSameDirectory}"/>
+            <CheckBox Content="Convert MP4 to Animated WEBP" IsChecked="{Binding ConvertMP4ToWEBP}"/>
+            <Expander Header="WEBP Settings">
+                <StackPanel Orientation="Vertical">
+                    <StackPanel Orientation="Horizontal">
+                        <Label Content="Width (-1 to retain original): "/>
+                        <TextBox Text="{Binding WEBPWidth}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Label Content="FPS: "/>
+                        <TextBox Text="{Binding WEBPFPS}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Label Content="Quality: "/>
+                        <TextBox Text="{Binding WEBPQuality}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Label Content="Loop (0 for infinite loop): "/>
+                        <TextBox Text="{Binding WEBPLoop}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Label Content="Compression (0 - 6): "/>
+                        <TextBox Text="{Binding WEBPCompression}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
             <Button Content="Select Folder" Click="SelectFolderClicked"/>
             <Button Content="Generate PDF" Command="{Binding GenerateOutputCommand}" CommandParameter="pdf"/>
             <Button Content="Compress Images" Command="{Binding GenerateOutputCommand}" CommandParameter="image"/>
+            <Button Content="Remove 'Compressed' from Folder Names" Command="{Binding RenameCompressedFolderNamesCommand}"/>
         </StackPanel>
         <ScrollViewer Grid.Column="1">
             <TextBlock Text="{Binding Logs}" TextWrapping="Wrap"/>

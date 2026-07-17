@@ -1,19 +1,17 @@
 ﻿using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using System;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Windows;
 using Microsoft.Win32;
 using MVVMHelper;
 using System.Windows.Input;
 using ImageMagick;
 using System.ComponentModel;
 using System.Collections.Generic;
-using System.Security.Policy;
+using System.Diagnostics;
+using System.Windows.Threading;
+using System.Windows;
 
 namespace Images2PDF
 {
@@ -26,7 +24,7 @@ namespace Images2PDF
     {
         private string sourceDirectoryPath = "";
         private string folderName = "";
-        private uint quality = 92;
+        private uint maxDimension = 0;
         private string logs = "";
         private string compressedImagesFolderName = "compressed";
         private bool includeSubDirectories = true;
@@ -34,10 +32,18 @@ namespace Images2PDF
 
         public string SourceDirectoryPath { get=> this.sourceDirectoryPath; set { this.sourceDirectoryPath = value; RaisePropertyChangedEvent("SourceDirectoryPath"); } }
         public string SourceFolderName { get => folderName; set { this.folderName = value; RaisePropertyChangedEvent("SourceFolderName"); } }
-        public uint Quality { get => this.quality; set { this.quality = value; RaisePropertyChangedEvent("Quality"); } }
+        public uint MaxDimension { get => this.maxDimension; set { this.maxDimension = value; RaisePropertyChangedEvent("MaxDimension"); } }
         public string Logs { get => this.logs; private set { this.logs = value; RaisePropertyChangedEvent("Logs"); } }
         public bool IncludeSubDirectories { get => this.includeSubDirectories; set { this.includeSubDirectories = value; RaisePropertyChangedEvent("IncludeSubDirectories"); } }
         public bool OutputPDFInSameDirectory { get => this.outputPDFInSameDirectory; set { this.outputPDFInSameDirectory = value; RaisePropertyChangedEvent("OutputPDFInSameDirectory"); } }
+        public bool OutputImageInCompressedDirectory { get; set; }
+        public bool ConvertMP4ToWEBP { get; set; } = true;
+        public int WEBPWidth { get; set; } = -1;
+        public uint WEBPFPS { get; set; } = 30;
+        public uint WEBPQuality { get; set; } = 75;
+        public uint WEBPLoop { get; set; } = 0;
+        public uint WEBPCompression { get; set; } = 6;
+
         public ICommand GenerateOutputCommand { get => new RelayCommand(
             (outputType)=> {
                 if (CanGenerateOutput(outputType))
@@ -55,6 +61,7 @@ namespace Images2PDF
                 }
             }
         ); }
+        public ICommand RenameCompressedFolderNamesCommand { get => new RelayCommand(o => this.RemoveCompressedFolderNames()); }
 
         public MainVM() { }
 
@@ -87,6 +94,22 @@ namespace Images2PDF
             return true;
         }
 
+        public void RemoveCompressedFolderNames()
+        {
+            var subdirectories = this.GetSubDirectories();
+            WriteLog($"Found {subdirectories.Count()} subfolders", LogType.NOTICE);
+            var renameTargets = subdirectories.Where(d => {
+                return Path.GetFileName(d).Contains($"-{this.compressedImagesFolderName}");
+            });
+            foreach(var target in renameTargets)
+            {
+                var oldName = Path.GetFileName(target);
+                var newName = oldName.Replace($"-{this.compressedImagesFolderName}", "");
+                Directory.Move(target, Path.Combine(this.sourceDirectoryPath, newName));
+                this.WriteLog($"{oldName} => {newName}", LogType.NOTICE);
+            }
+        }
+
         public void GenerateMultiDirectoryOutput(string outputType)
         {
             var subdirectories = this.GetSubDirectories();
@@ -105,57 +128,139 @@ namespace Images2PDF
 
         public void GenerateOutput(string outputType)
         {
-            IEnumerable<string> imageFiles = GetImageFilesFromDirectory();
-
-            if (!imageFiles.Any())
-            {
-                this.WriteLog($"No image files found in the directory: {sourceDirectoryPath}", LogType.ERROR);
-                return;
-            }
+            IEnumerable<string> imageFiles = GetFilesFromDirectory("*.jpg", "*.jpeg", "*.png");
 
             // 2. Create the output PDF document
             var document = new PdfDocument();
 
-            // 3. Loop through each image and add it to a new page in the PDF
-            var sortedImages = imageFiles.OrderBy(s => s, new WindowsFileNameComparer()).ToList();
-            foreach (var imagePath in sortedImages)
+            if (!imageFiles.Any())
             {
-                this.WriteLog(imagePath, LogType.NOTICE);
-
-                try
+                this.WriteLog($"No image files found in the directory: {sourceDirectoryPath}", LogType.ERROR);
+            }
+            else
+            {
+                // 3. Loop through each image and add it to a new page in the PDF
+                var sortedImages = imageFiles.OrderBy(s => s, new WindowsFileNameComparer()).ToList();
+                foreach (var imagePath in sortedImages)
                 {
-                    using (var magickimage = new MagickImage(imagePath))
+                    this.WriteLog(imagePath, LogType.NOTICE);
+
+                    try
                     {
-                        if (magickimage.Format != MagickFormat.Unknown)
-                        {
-                            magickimage.Strip();
-                            magickimage.Format = MagickFormat.Jpg;
-                            magickimage.Quality = this.quality;
-                            var imgByteArray = magickimage.ToByteArray();
-
-                            using (var compressedStream = new MemoryStream(imgByteArray, 0, imgByteArray.Length, true, true))
+                            using (var magickimage = new MagickImage(imagePath))
                             {
-                                PerformLosslessCompression(compressedStream);
+                                if (magickimage.Format != MagickFormat.Unknown)
+                                {
+                                    magickimage.Strip();
 
-                                if (outputType == "pdf")
-                                    AddImageToDocument(document, compressedStream);
-                                else if (outputType == "image")
-                                    SaveImage(imagePath, compressedStream);
+                                    if (this.MaxDimension > 0)
+                                    {
+                                        var maxSide = Math.Max(magickimage.Width, magickimage.Height);
+                                        if (maxSide > this.MaxDimension)
+                                        {
+                                            magickimage.Resize(new MagickGeometry(this.MaxDimension) { IgnoreAspectRatio = false, Greater = true });
+                                        }
+                                    }
+
+                                    if (magickimage.Format == MagickFormat.Bmp || magickimage.Format == MagickFormat.Tiff || magickimage.Format == MagickFormat.Tif)
+                                        magickimage.Format = MagickFormat.Png;
+
+                                    var imgByteArray = magickimage.ToByteArray();
+
+                                    using (var compressedStream = new MemoryStream(imgByteArray, 0, imgByteArray.Length, true, true))
+                                    {
+                                        PerformLosslessCompression(compressedStream);
+
+                                        //3a. if output is pdf, add it to the pdf file in memory
+                                        if (outputType == "pdf")
+                                            AddImageToDocument(document, compressedStream);
+                                        //3b. if output is image, save it to the output directory
+                                        else if (outputType == "image")
+                                            SaveImage(imagePath, compressedStream);
+                                    }
+                                }
+                                else
+                                {
+                                    this.WriteLog($"Image format unknown: '{imagePath}'", LogType.ERROR);
+                                }
                             }
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            this.WriteLog($"Image format unknown: '{imagePath}'", LogType.ERROR);
+                            this.WriteLog($"Could not process image '{imagePath}': {ex.Message}", LogType.ERROR);
                         }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    this.WriteLog($"Could not process image '{imagePath}': {ex.Message}", LogType.ERROR);
                 }
             }
 
-            // 4. Save the final PDF document
+
+
+            // 4. convert mp4 to animated webp via ffmpeg
+            if (this.ConvertMP4ToWEBP)
+            {
+                var videos = GetFilesFromDirectory("*.mp4");
+                if (!videos.Any())
+                {
+                    this.WriteLog($"No video files found in the directory: {sourceDirectoryPath}", LogType.ERROR);
+                }
+                else
+                {
+                    this.WriteLog($"Found {videos.Count()} videos.", LogType.NOTICE);
+                    var outputPath = CreateOutputFolder();
+                    foreach (var videoPath in videos)
+                    {
+                        var finfo = new FileInfo(videoPath);
+                        var outputFilePath = Path.Join(outputPath, finfo.Name.Replace(finfo.Extension, ""));
+                        var ffmpegArg = $"-i \"{videoPath}\" " +
+                            $"-vcodec libwebp " +
+                            $"-filter:v \"scale = {WEBPWidth}:-1:flags = lanczos\" " +
+                            $"-loop {WEBPLoop} -lossless 0 -compression_level {WEBPCompression} -q:v {WEBPQuality} " +
+                            $"-an -vsync 0 \"{outputFilePath}.webp\"";
+
+                        var ffmpegProcessInfo = new ProcessStartInfo
+                        {
+                            FileName = "ffmpeg",
+                            Arguments = ffmpegArg,
+                            UseShellExecute = false,
+                            CreateNoWindow = false, // Prevents the black command window from popping up
+                            RedirectStandardOutput = false,
+                            RedirectStandardError = false // FFmpeg often outputs progress/errors to StandardError
+                        };
+
+                        try
+                        {
+                            using (Process process = Process.Start(ffmpegProcessInfo))
+                            {
+                                process.WaitForExit();
+
+                                if (process.ExitCode == 0)
+                                {
+                                    Application.Current.Dispatcher.Invoke(() => this.WriteLog($"Conversion complete! Output saved to:\n{outputPath}", LogType.NOTICE));
+                                    if (outputType == "pdf")
+                                    {
+                                        using (var s = new StreamReader(outputFilePath))
+                                        {
+                                            AddImageToDocument(document, s.BaseStream);
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    string errorOutput = process.StandardError.ReadToEnd();
+                                    Application.Current.Dispatcher.Invoke(() => this.WriteLog($"Conversion failed! Error code: {process.ExitCode}\nFFmpeg Output:\n{errorOutput}", LogType.ERROR));
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Application.Current.Dispatcher.Invoke(() => this.WriteLog($"An unexpected error occurred: {ex.Message}", LogType.ERROR));
+                        }
+                    }
+                }
+            }
+
+            
+
+            // 5. Save the final PDF document
             if (outputType == "pdf")
             {
                 try
@@ -193,14 +298,14 @@ namespace Images2PDF
             this.Logs = "";
         }
 
-        private static void PerformLosslessCompression(MemoryStream compressedStream)
+        private static void PerformLosslessCompression(Stream compressedStream)
         {
             var optimizer = new ImageOptimizer();
             optimizer.LosslessCompress(compressedStream);
             compressedStream.Seek(0, SeekOrigin.Begin);
         }
 
-        private static void AddImageToDocument(PdfDocument document, MemoryStream compressedStream)
+        private static void AddImageToDocument(PdfDocument document, Stream compressedStream)
         {
             XImage xImage = XImage.FromStream(compressedStream);
 
@@ -216,10 +321,7 @@ namespace Images2PDF
 
         private void SaveImage(string imagePath, MemoryStream compressedStream)
         {
-            var compresseddir = Path.Combine(this.sourceDirectoryPath, @"..\", $"{folderName}-{compressedImagesFolderName}");
-            //create output directory if not exists
-            if (!Directory.Exists(compresseddir))
-                Directory.CreateDirectory(compresseddir);
+            string compresseddir = CreateOutputFolder();
 
             var compressedImg = compressedStream.ToArray();
             var info = new FileInfo(imagePath);
@@ -228,12 +330,23 @@ namespace Images2PDF
             File.WriteAllBytes(Path.Combine(compresseddir, outputFileName), compressedImg);
         }
 
-        private IEnumerable<string> GetImageFilesFromDirectory()
+        private string CreateOutputFolder()
         {
-            return Directory.GetFiles(sourceDirectoryPath, "*.jpg", SearchOption.TopDirectoryOnly)
-                .Concat(Directory.GetFiles(sourceDirectoryPath, "*.jpeg", SearchOption.TopDirectoryOnly))
-                .Concat(Directory.GetFiles(sourceDirectoryPath, "*.png", SearchOption.TopDirectoryOnly))
-                .Concat(Directory.GetFiles(sourceDirectoryPath, "*.webp", SearchOption.TopDirectoryOnly));
+            var compresseddir = Path.Combine(this.sourceDirectoryPath, @"..\", $"{folderName}-{compressedImagesFolderName}");
+            //create output directory if not exists
+            if (!Directory.Exists(compresseddir))
+                Directory.CreateDirectory(compresseddir);
+            return compresseddir;
+        }
+
+        private IEnumerable<string> GetFilesFromDirectory(params string[] fileformats)
+        {
+            var result = new List<string>();
+            foreach(var format in fileformats)
+            {
+                result.AddRange(Directory.GetFiles(sourceDirectoryPath, format, SearchOption.TopDirectoryOnly));
+            }
+            return result;
         }
 
         private IEnumerable<string> GetSubDirectories()
