@@ -4,8 +4,13 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Images2PDF"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
         Title="Image2PDF" WindowState="Maximized">
+    <Window.TaskbarItemInfo>
+        <TaskbarItemInfo ProgressValue="{Binding TaskbarProgressValue}"
+                         ProgressState="{Binding TaskbarProgressState}"/>
+    </Window.TaskbarItemInfo>
     <Window.Resources>
         <ResourceDictionary>
             <Style TargetType="Button">

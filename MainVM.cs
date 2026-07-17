@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Windows.Threading;
 using System.Windows;
+using System.Windows.Shell;
 
 namespace Images2PDF
 {
@@ -29,6 +30,10 @@ namespace Images2PDF
         private string compressedImagesFolderName = "compressed";
         private bool includeSubDirectories = true;
         private bool outputPDFInSameDirectory = false;
+        private double _taskbarProgressValue;
+        private TaskbarItemProgressState _taskbarProgressState = TaskbarItemProgressState.None;
+        private int _totalImageCount;
+        private int _processedImageCount;
 
         public string SourceDirectoryPath { get=> this.sourceDirectoryPath; set { this.sourceDirectoryPath = value; RaisePropertyChangedEvent("SourceDirectoryPath"); } }
         public string SourceFolderName { get => folderName; set { this.folderName = value; RaisePropertyChangedEvent("SourceFolderName"); } }
@@ -37,6 +42,16 @@ namespace Images2PDF
         public bool IncludeSubDirectories { get => this.includeSubDirectories; set { this.includeSubDirectories = value; RaisePropertyChangedEvent("IncludeSubDirectories"); } }
         public bool OutputPDFInSameDirectory { get => this.outputPDFInSameDirectory; set { this.outputPDFInSameDirectory = value; RaisePropertyChangedEvent("OutputPDFInSameDirectory"); } }
         public bool OutputImageInCompressedDirectory { get; set; }
+        public double TaskbarProgressValue
+        {
+            get => _taskbarProgressValue;
+            set { _taskbarProgressValue = value; RaisePropertyChangedEvent("TaskbarProgressValue"); }
+        }
+        public TaskbarItemProgressState TaskbarProgressState
+        {
+            get => _taskbarProgressState;
+            set { _taskbarProgressState = value; RaisePropertyChangedEvent("TaskbarProgressState"); }
+        }
         public bool ConvertMP4ToWEBP { get; set; } = true;
         public int WEBPWidth { get; set; } = -1;
         public uint WEBPFPS { get; set; } = 30;
@@ -52,10 +67,29 @@ namespace Images2PDF
                     var worker = new BackgroundWorker();
                     worker.DoWork += (s, e) =>
                     {
+                        _processedImageCount = 0;
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            TaskbarProgressValue = 0;
+                            TaskbarProgressState = TaskbarItemProgressState.Normal;
+                        });
+
                         if (this.includeSubDirectories)
+                        {
+                            _totalImageCount = CountAllImages();
                             this.GenerateMultiDirectoryOutput(outputstr);
+                        }
                         else
+                        {
+                            _totalImageCount = GetFilesFromDirectory("*.jpg", "*.jpeg", "*.png").Count();
                             this.GenerateOutput(outputstr);
+                        }
+
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            TaskbarProgressValue = 1.0;
+                            TaskbarProgressState = TaskbarItemProgressState.None;
+                        });
                     };
                     worker.RunWorkerAsync();
                 }
@@ -189,6 +223,13 @@ namespace Images2PDF
                         {
                             this.WriteLog($"Could not process image '{imagePath}': {ex.Message}", LogType.ERROR);
                         }
+
+                    _processedImageCount++;
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        if (_totalImageCount > 0)
+                            TaskbarProgressValue = (double)_processedImageCount / _totalImageCount;
+                    });
                 }
             }
 
@@ -337,6 +378,19 @@ namespace Images2PDF
             if (!Directory.Exists(compresseddir))
                 Directory.CreateDirectory(compresseddir);
             return compresseddir;
+        }
+
+        private int CountAllImages()
+        {
+            var dirs = GetSubDirectories().Append(this.sourceDirectoryPath);
+            int total = 0;
+            foreach (var dir in dirs)
+            {
+                total += Directory.GetFiles(dir, "*.jpg", SearchOption.TopDirectoryOnly).Length
+                    + Directory.GetFiles(dir, "*.jpeg", SearchOption.TopDirectoryOnly).Length
+                    + Directory.GetFiles(dir, "*.png", SearchOption.TopDirectoryOnly).Length;
+            }
+            return total;
         }
 
         private IEnumerable<string> GetFilesFromDirectory(params string[] fileformats)
